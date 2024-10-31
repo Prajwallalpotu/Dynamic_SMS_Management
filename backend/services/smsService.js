@@ -1,19 +1,41 @@
-// services/smsService.js
+// services/smsManagementService.js
 const { exec } = require('child_process');
+const TelegramAlertService = require('./telegramAlertService');
+const Metric = require('../models/Metric');
+const CountryOperator = require('../models/CountryOperator');
 
-class SMSService {
-    static startSession(sessionName) {
-        exec(`screen -S ${sessionName} -d -m node yourScript.js`);
+class SMSManagementService {
+    static async startSession(countryOperator) {
+        try {
+            const sessionName = `sms_${countryOperator.country}_${countryOperator.operator}`;
+            
+            // Start screen session
+            exec(`screen -S ${sessionName} -d -m node smsProgram.js`, async (error) => {
+                if (error) {
+                    await TelegramAlertService.sendCriticalAlert(
+                        `Failed to start session for ${countryOperator.country} - ${countryOperator.operator}`
+                    );
+                }
+            });
+
+            return sessionName;
+        } catch (error) {
+            console.error('Session Start Error:', error);
+        }
     }
 
-    static stopSession(sessionName) {
-        exec(`screen -S ${sessionName} -X quit`);
-    }
+    static async monitorPerformance(countryOperator) {
+        const metrics = await Metric.findOne({ 
+            country: countryOperator.country, 
+            operator: countryOperator.operator 
+        });
 
-    static restartSession(sessionName) {
-        this.stopSession(sessionName);
-        this.startSession(sessionName);
+        if (metrics && metrics.successRate < 30) {
+            await TelegramAlertService.sendCriticalAlert(
+                `Low Success Rate Alert: ${countryOperator.country} - ${countryOperator.operator} at ${metrics.successRate}%`
+            );
+        }
     }
 }
 
-module.exports = SMSService;
+module.exports = SMSManagementService;
